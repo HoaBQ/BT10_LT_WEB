@@ -1,6 +1,6 @@
-# JWT Demo - Spring Boot 3 & Spring Security 6
+# JWT Authentication & Authorization with Spring Boot 3 & Nimbus JOSE + JWT
 
-Dự án mẫu triển khai xác thực và phân quyền bằng **JSON Web Token (JWT)** sử dụng **Spring Boot 3**, **Spring Security 6**, thư viện **JJWT 0.12.6** kết hợp giao diện Web Ajax/Thymeleaf.
+Dự án triển khai xác thực và phân quyền người dùng theo kiến trúc Stateless sử dụng **Spring Boot 3**, **Spring Security 6** và thư viện **Nimbus JOSE + JWT** (`com.nimbusds:nimbus-jose-jwt`) kết hợp giao diện Web Ajax/Thymeleaf.
 
 ---
 
@@ -8,10 +8,23 @@ Dự án mẫu triển khai xác thực và phân quyền bằng **JSON Web Toke
 
 - **Ngôn ngữ:** Java 21+
 - **Framework:** Spring Boot 3.2.4
-- **Bảo mật:** Spring Security 6 (Stateless JWT Authentication)
-- **Thư viện JWT:** JJWT 0.12.6 (`jjwt-api`, `jjwt-impl`, `jjwt-jackson`)
+- **Bảo mật:** Spring Security 6 (Stateless JWT Authentication Filter)
+- **Thư viện JWT:** **Nimbus JOSE + JWT** (`com.nimbusds:nimbus-jose-jwt:9.37.3`)
 - **Cơ sở dữ liệu:** MySQL (Spring Data JPA / Hibernate)
 - **Frontend:** Thymeleaf, HTML5, Bootstrap 5, jQuery / AJAX
+
+---
+
+## 💡 Giới thiệu về Nimbus JOSE + JWT
+
+Trong dự án này, thư viện **Nimbus JOSE + JWT** được sử dụng thay thế cho JJWT vì:
+1. **Chuẩn Enterprise:** Nimbus là thư viện chuẩn được chính Spring Security (OAuth2 / Resource Server / Authorization Server) tích hợp mặc định.
+2. **Gói gọn dependency:** Chỉ cần 1 thư viện duy nhất `nimbus-jose-jwt`, không cần tách nhỏ nhiều module.
+3. **Phân tách đối tượng rõ ràng:**
+   - `JWSHeader`: Đại diện cho Header thuật toán (`HS256`, `RS256`, ...).
+   - `JWTClaimsSet`: Đại diện cho Payload chứa các claims (`sub`, `iat`, `exp`, thông tin custom).
+   - `JWSSigner` / `MACSigner`: Đối tượng thực hiện ký số HMAC.
+   - `JWSVerifier` / `MACVerifier`: Đối tượng giải mã và xác thực tính hợp lệ của chữ ký.
 
 ---
 
@@ -21,35 +34,35 @@ Dự án mẫu triển khai xác thực và phân quyền bằng **JSON Web Toke
 BT10/
 ├── src/main/java/vn/iotstar/
 │   ├── configs/
-│   │   ├── ApplicationConfiguration.java     # Cấu hình UserDetailsService, PasswordEncoder, AuthProvider
-│   │   ├── SecurityConfiguration.java        # Cấu hình SecurityFilterChain, phân quyền URL, CORS
-│   │   └── GlobalExceptionHandler.java       # Xử lý ngoại lệ toàn cục (ProblemDetail RFC 7807)
+│   │   ├── ApplicationConfiguration.java     # Cấu hình UserDetailsService (hỗ trợ login bằng Email/Username), PasswordEncoder, AuthProvider
+│   │   ├── SecurityConfiguration.java        # Cấu hình SecurityFilterChain, permitAll các endpoint công khai, cấu hình CORS
+│   │   └── GlobalExceptionHandler.java       # Bắt và xử lý ngoại lệ toàn cục của Nimbus (JOSEException, ParseException, BadJWTException)
 │   ├── controllers/
 │   │   ├── AuthenticationController.java     # REST API: /auth/signup, /auth/login
 │   │   ├── UserController.java               # REST API: /users/me, /users/
 │   │   └── AuthController.java               # Web Controller: /login, /user/profile
 │   ├── entity/
-│   │   └── User.java                         # Entity ánh xạ bảng `users`, implements UserDetails
+│   │   └── User.java                         # Entity ánh xạ bảng `users` trong MySQL, implements UserDetails
 │   ├── filter/
-│   │   └── JwtAuthenticationFilter.java      # Filter chặn request, trích xuất và xác thực Bearer Token
+│   │   └── JwtAuthenticationFilter.java      # Filter chặn request, trích xuất Bearer Token và nạp Authentication vào SecurityContext
 │   ├── models/
-│   │   ├── LoginResponse.java                # DTO trả về token và thời hạn
-│   │   ├── LoginUserModel.java               # DTO nhận thông tin đăng nhập
-│   │   └── RegisterUserModel.java            # DTO nhận thông tin đăng ký
+│   │   ├── LoginResponse.java                # DTO trả về JWT Token và thời hạn
+│   │   ├── LoginUserModel.java               # DTO nhận payload đăng nhập (email / username + password)
+│   │   └── RegisterUserModel.java            # DTO nhận payload đăng ký tài khoản
 │   ├── repository/
-│   │   └── UserRepository.java               # JpaRepository tương tác bảng users
+│   │   └── UserRepository.java               # JpaRepository (hỗ trợ tìm kiếm theo cả email và username)
 │   ├── services/
-│   │   ├── AuthenticationService.java        # Nghiệp vụ đăng ký và xác thực người dùng
-│   │   ├── JwtService.java                   # Nghiệp vụ sinh mã, mã hóa và giải mã JWT
-│   │   └── UserService.java                  # Nghiệp vụ lấy danh sách người dùng
-│   └── JwtSpringboot3Application.java        # Main class & CommandLineRunner khởi tạo user mẫu
+│   │   ├── AuthenticationService.java        # Nghiệp vụ đăng ký và xác thực tài khoản
+│   │   ├── JwtService.java                   # Nghiệp vụ sinh mã, mã hóa và xác thực JWT bằng Nimbus
+│   │   └── UserService.java                  # Nghiệp vụ truy vấn danh sách người dùng
+│   └── JwtSpringboot3Application.java        # Main class & CommandLineRunner tự động tạo tài khoản mẫu
 ├── src/main/resources/
 │   ├── static/js/
-│   │   └── mainjs.js                         # Xử lý AJAX đăng nhập, đăng ký và gọi API profile
+│   │   └── mainjs.js                         # Xử lý AJAX đăng nhập, đăng ký và gửi Bearer Token gọi API profile
 │   ├── templates/
-│   │   ├── login.html                        # Giao diện Đăng nhập & Đăng ký (Tab toggle)
-│   │   └── profile.html                      # Giao diện thông tin tài khoản sau đăng nhập
-│   └── application.properties                # Cấu hình Database, Port và JWT Secret
+│   │   ├── login.html                        # Giao diện Đăng nhập & Đăng ký chuyển đổi tab mượt mà
+│   │   └── profile.html                      # Giao diện trang cá nhân hiển thị thông tin User
+│   └── application.properties                # Cấu hình kết nối Database, Port và JWT Secret Key
 └── pom.xml
 ```
 
@@ -70,7 +83,7 @@ spring.datasource.password=12345
 spring.jpa.hibernate.ddl-auto=update
 spring.jpa.open-in-view=false
 
-# Cấu hình JWT
+# Cấu hình JWT Secret & Expiration Time
 security.jwt.secret-key=3cfa76ef14937c1c0ea519f8fc057a80fcd04a7420f8e8bcd0a7567c272e007b
 # Thời hạn token: 1 giờ (3,600,000 ms)
 security.jwt.expiration-time=3600000
@@ -78,26 +91,25 @@ security.jwt.expiration-time=3600000
 
 ---
 
-## 🚀 Hướng dẫn chạy ứng dụng
+## 🚀 Hướng dẫn khởi chạy
 
-### 1. Chuẩn bị Cơ sở dữ liệu:
-Tạo database MySQL `bt10` (nếu chưa có):
+### 1. Tạo Database MySQL (Nếu chưa có):
 ```sql
 CREATE DATABASE IF NOT EXISTS bt10;
 ```
 
-### 2. Biên dịch và khởi chạy:
+### 2. Biên dịch & Chạy dự án:
 ```bash
 mvn clean compile
 mvn spring-boot:run
 ```
-Ứng dụng sẽ chạy tại cổng: `http://localhost:8005`
+Ứng dụng sẽ chạy tại địa chỉ: `http://localhost:8005`
 
 ---
 
-## 👤 Tài khoản mặc định
+## 👤 Tài khoản mẫu tự động khởi tạo
 
-Khi ứng dụng khởi động lần đầu, hệ thống tự động khởi tạo tài khoản mẫu trong Database:
+Khi ứng dụng chạy lần đầu, `CommandLineRunner` trong [`JwtSpringboot3Application.java`](file:///d:/Documents/Web/BT10/src/main/java/vn/iotstar/JwtSpringboot3Application.java) sẽ tự động tạo sẵn tài khoản quản trị viên:
 - **Email:** `admin@gmail.com`
 - **Username:** `admin`
 - **Mật khẩu:** `123456`
@@ -107,107 +119,69 @@ Khi ứng dụng khởi động lần đầu, hệ thống tự động khởi t
 
 ## 🌐 Hướng dẫn sử dụng Giao diện Web
 
-1. **Trang Đăng nhập & Đăng ký:** Mở trình duyệt vào `http://localhost:8005/login` hoặc `http://localhost:8005/`
-   - Nhập `admin` hoặc `admin@gmail.com` và mật khẩu `123456` để đăng nhập.
-   - Hoặc chuyển sang tab **Đăng ký** để tạo tài khoản mới trực tiếp.
-2. **Trang Hồ sơ (`http://localhost:8005/user/profile`):**
-   - Sau khi đăng nhập thành công, token được lưu vào `localStorage`.
-   - Trang tự động gửi Ajax kèm Header `Authorization: Bearer <token>` để lấy và hiển thị thông tin User.
-   - Nhấn nút **Logout** để xóa token và đăng xuất.
+1. **Trang Đăng nhập & Đăng ký (`http://localhost:8005/login` hoặc `http://localhost:8005/`):**
+   - Hỗ trợ đăng nhập linh hoạt bằng **Email** (`admin@gmail.com`) hoặc **Username** (`admin`) kèm mật khẩu `123456`.
+   - Có tab **Đăng ký** cho phép tạo nhanh tài khoản mới ngay trên trình duyệt.
+2. **Trang Profile (`http://localhost:8005/user/profile`):**
+   - Sau khi đăng nhập thành công, token được lưu vào `localStorage.token`.
+   - Trang cá nhân tự động gửi Ajax kèm Header `Authorization: Bearer <token>` để nạp thông tin người dùng.
+   - Bấm nút **Logout** để xóa token và quay về trang đăng nhập.
 
 ---
 
-## 📮 Kiểm thử API qua Postman / cURL
+## 📮 Kiểm thử REST API (Postman / cURL)
 
-### 1. Đăng ký tài khoản mới (`POST /auth/signup`)
+### 1. Đăng ký tài khoản (`POST /auth/signup`)
 - **URL:** `http://localhost:8005/auth/signup`
 - **Method:** `POST`
-- **Headers:** `Content-Type: application/json`
-- **Body (raw JSON):**
+- **Body (JSON):**
   ```json
   {
-    "fullName": "Nguyễn Hữu Trung",
+    "fullName": "Nguyen Huu Trung",
     "email": "trungnh@hcmute.edu.vn",
     "username": "trungnh",
     "password": "123456"
   }
   ```
-- **Response (200 OK):**
-  ```json
-  {
-    "id": 2,
-    "fullName": "Nguyễn Hữu Trung",
-    "email": "trungnh@hcmute.edu.vn",
-    "images": "https://cdn-icons-png.flaticon.com/512/847/847969.png",
-    "createdAt": "2026-09-30T01:48:47.207+00:00",
-    "updatedAt": "2026-09-30T01:48:47.207+00:00"
-  }
-  ```
 
 ---
 
-### 2. Đăng nhập lấy JWT Token (`POST /auth/login`)
+### 2. Đăng nhập lấy Token (`POST /auth/login`)
 - **URL:** `http://localhost:8005/auth/login`
 - **Method:** `POST`
-- **Headers:** `Content-Type: application/json`
-- **Body (raw JSON):** *(hỗ trợ email hoặc username)*
+- **Body (JSON):** *(có thể dùng email hoặc username)*
   ```json
   {
-    "email": "trungnh@hcmute.edu.vn",
+    "email": "admin@gmail.com",
     "password": "123456"
   }
   ```
 - **Response (200 OK):**
   ```json
   {
-    "token": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0cnVuZ25oQGhjbXV0ZS5lZHUudm4i...",
+    "token": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhZG1pbkBnbWFpbC5jb20iLCJpYXQiOjE3Mzg...",
     "expiresIn": 3600000
   }
   ```
 
 ---
 
-### 3. Lấy thông tin tài khoản hiện tại (`GET /users/me`) - *Yêu cầu Token*
+### 3. Lấy thông tin cá nhân (`GET /users/me`) - *Được bảo vệ bằng JWT*
 - **URL:** `http://localhost:8005/users/me`
 - **Method:** `GET`
 - **Headers:**
-  - `Authorization`: `Bearer <paste_jwt_token_here>`
-- **Response (200 OK):**
-  ```json
-  {
-    "id": 2,
-    "fullName": "Nguyễn Hữu Trung",
-    "email": "trungnh@hcmute.edu.vn",
-    "images": "https://cdn-icons-png.flaticon.com/512/847/847969.png",
-    "authorities": [],
-    "username": "trungnh@hcmute.edu.vn",
-    "accountNonExpired": true,
-    "accountNonLocked": true,
-    "credentialsNonExpired": true,
-    "enabled": true
-  }
-  ```
+  - `Authorization`: `Bearer <token_nhan_duoc_khi_login>`
+- **Response (200 OK):** Trả về toàn bộ thông tin tài khoản hiện tại.
 
 ---
 
-### 4. Lấy danh sách tất cả người dùng (`GET /users/`) - *Yêu cầu Token*
+### 4. Lấy danh sách tất cả Users (`GET /users/`) - *Được bảo vệ bằng JWT*
 - **URL:** `http://localhost:8005/users/`
 - **Method:** `GET`
 - **Headers:**
-  - `Authorization`: `Bearer <paste_jwt_token_here>`
-- **Response (200 OK):** Trả về danh sách mảng JSON các User.
+  - `Authorization`: `Bearer <token_nhan_duoc_khi_login>`
 
 ---
 
-### 5. Kiểm thử xử lý lỗi (Global Exception Handler)
-- Khi truy cập endpoint được bảo vệ mà không có token hoặc token sai định dạng (`Bearer dfdfdfdf`), hệ thống trả về mã lỗi kèm cấu trúc chuẩn **RFC 7807 Problem Details**:
-  ```json
-  {
-    "type": "about:blank",
-    "title": "Forbidden",
-    "status": 403,
-    "detail": "The JWT signature is invalid",
-    "instance": "/users/me",
-    "description": "The JWT signature is invalid"
-  }
-  ```
+### 5. Xử lý ngoại lệ toàn cục (`GlobalExceptionHandler`)
+- Khi gửi token sai định dạng, hết hạn hoặc không có quyền truy cập, hệ thống bắt lỗi qua Nimbus và trả về phản hồi chuẩn **RFC 7807 Problem Details** (HTTP 401 / 403 / 500).

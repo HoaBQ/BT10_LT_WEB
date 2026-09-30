@@ -1,18 +1,22 @@
 package vn.iotstar.services;
 
-import io.jsonwebtoken.Claims;
-import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.io.Decoders;
-import io.jsonwebtoken.security.Keys;
+import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.JWSHeader;
+import com.nimbusds.jose.JWSSigner;
+import com.nimbusds.jose.JWSVerifier;
+import com.nimbusds.jose.crypto.MACSigner;
+import com.nimbusds.jose.crypto.MACVerifier;
+import com.nimbusds.jwt.JWTClaimsSet;
+import com.nimbusds.jwt.SignedJWT;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 
-import javax.crypto.SecretKey;
+import java.nio.charset.StandardCharsets;
+import java.text.ParseException;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.function.Function;
 
 @Service
 public class JwtService {
@@ -24,12 +28,12 @@ public class JwtService {
     private long jwtExpiration;
 
     public String extractUsername(String token) {
-        return extractClaim(token, Claims::getSubject);
-    }
-
-    public <T> T extractClaim(String token, Function<Claims, T> claimsResolver) {
-        final Claims claims = extractAllClaims(token);
-        return claimsResolver.apply(claims);
+        try {
+            SignedJWT signedJWT = parseToken(token);
+            return signedJWT.getJWTClaimsSet().getSubject();
+        } catch (ParseException e) {
+            throw new IllegalArgumentException("Invalid JWT format", e);
+        }
     }
 
     public String generateToken(UserDetails userDetails) {
@@ -44,44 +48,60 @@ public class JwtService {
         return jwtExpiration;
     }
 
-    private String buildToken(
-            Map<String, Object> extraClaims,
-            UserDetails userDetails,
-            long expiration
-    ) {
-        return Jwts.builder()
-                .claims(extraClaims)
-                .subject(userDetails.getUsername())
-                .issuedAt(new Date(System.currentTimeMillis()))
-                .expiration(new Date(System.currentTimeMillis() + expiration))
-                .signWith(getSignInKey(), Jwts.SIG.HS256)
-                .compact();
+    private String buildToken(Map<String, Object> extraClaims, UserDetails userDetails, long expiration) {
+        try {
+            JWSHeader header = new JWSHeader(JWSAlgorithm.HS256);
+            Date now = new Date();
+            Date expirationDate = new Date(now.getTime() + expiration);
+
+            JWTClaimsSet.Builder builder = new JWTClaimsSet.Builder()
+                    .subject(userDetails.getUsername())
+                    .issueTime(now)
+                    .expirationTime(expirationDate);
+
+            if (extraClaims != null) {
+                extraClaims.forEach(builder::claim);
+            }
+
+            JWTClaimsSet claimsSet = builder.build();
+            SignedJWT signedJWT = new SignedJWT(header, claimsSet);
+
+            JWSSigner signer = new MACSigner(getSecretBytes());
+            signedJWT.sign(signer);
+
+            return signedJWT.serialize();
+        } catch (Exception e) {
+            throw new RuntimeException("Error creating JWT token using Nimbus", e);
+        }
     }
 
     public boolean isTokenValid(String token, UserDetails userDetails) {
-        final String username = extractUsername(token);
-        return (username.equals(userDetails.getUsername())) && !isTokenExpired(token);
+        try {
+            SignedJWT signedJWT = parseToken(token);
+            JWSVerifier verifier = new MACVerifier(getSecretBytes());
+
+            boolean isSignatureValid = signedJWT.verify(verifier);
+            Date expirationTime = signedJWT.getJWTClaimsSet().getExpirationTime();
+            boolean isExpired = expirationTime != null && expirationTime.before(new Date());
+            String username = signedJWT.getJWTClaimsSet().getSubject();
+
+            return isSignatureValid && !isExpired && username != null && username.equals(userDetails.getUsername());
+        } catch (Exception e) {
+            return false;
+        }
     }
 
-    private boolean isTokenExpired(String token) {
-        return extractExpiration(token).before(new Date());
+    public SignedJWT parseToken(String token) throws ParseException {
+        return SignedJWT.parse(token);
     }
 
-    private Date extractExpiration(String token) {
-        return extractClaim(token, Claims::getExpiration);
-    }
-
-    private Claims extractAllClaims(String token) {
-        return Jwts
-                .parser()
-                .verifyWith(getSignInKey())
-                .build()
-                .parseSignedClaims(token)
-                .getPayload();
-    }
-
-    private SecretKey getSignInKey() {
-        byte[] keyBytes = Decoders.BASE64.decode(secretKey);
-        return Keys.hmacShaKeyFor(keyBytes);
+    private byte[] getSecretBytes() {
+        byte[] bytes = secretKey.getBytes(StandardCharsets.UTF_8);
+        if (bytes.length < 32) {
+            byte[] padded = new byte[32];
+            System.arraycopy(bytes, 0, padded, 0, bytes.length);
+            return padded;
+        }
+        return bytes;
     }
 }
